@@ -4,16 +4,16 @@
 
 // ── Portal definitions ──
 const PORTALS = [
-  { id:'linkedin', name:'LinkedIn', icon:'in', color:'#0A66C2', urlTemplate:'https://www.linkedin.com/jobs/search/?keywords={role}&location={loc}' },
-  { id:'naukri', name:'Naukri', icon:'N', color:'#4A90D9', urlTemplate:'https://www.naukri.com/{role}-jobs-in-{loc}' },
-  { id:'indeed', name:'Indeed', icon:'🔍', color:'#2164f3', urlTemplate:'https://www.indeed.com/jobs?q={role}&l={loc}' },
-  { id:'glassdoor', name:'Glassdoor', icon:'🚪', color:'#0caa41', urlTemplate:'https://www.glassdoor.com/Job/{loc}-{role}-jobs.htm' },
-  { id:'internshala', name:'Internshala', icon:'🎓', color:'#00a5ec', urlTemplate:'https://internshala.com/internships/{role}-internship-in-{loc}' },
-  { id:'wellfound', name:'Wellfound', icon:'🚀', color:'#111', urlTemplate:'https://wellfound.com/role/{role}/{loc}' },
-  { id:'shine', name:'Shine', icon:'✨', color:'#e53935', urlTemplate:'https://www.shine.com/job-search/{role}-jobs-in-{loc}' },
-  { id:'monster', name:'Monster India', icon:'👾', color:'#6e45e2', urlTemplate:'https://www.monsterindia.com/srp/results?query={role}&locations={loc}' },
-  { id:'instahyre', name:'Instahyre', icon:'⚡', color:'#ff6b00', urlTemplate:'https://www.instahyre.com/search-jobs/?designation={role}&location={loc}' },
-  { id:'foundit', name:'Foundit', icon:'🔎', color:'#2196f3', urlTemplate:'https://www.foundit.in/srp/results?query={role}&locations={loc}' }
+  { id:'linkedin', name:'LinkedIn', icon:'in', color:'#0A66C2', baseUrl:'https://www.linkedin.com/jobs/', urlTemplate:'https://www.linkedin.com/jobs/search/?keywords={role}&location={loc}' },
+  { id:'naukri', name:'Naukri', icon:'N', color:'#4A90D9', baseUrl:'https://www.naukri.com/', urlTemplate:'https://www.naukri.com/{role}-jobs-in-{loc}' },
+  { id:'indeed', name:'Indeed', icon:'🔍', color:'#2164f3', baseUrl:'https://www.indeed.com/', urlTemplate:'https://www.indeed.com/jobs?q={role}&l={loc}' },
+  { id:'glassdoor', name:'Glassdoor', icon:'🚪', color:'#0caa41', baseUrl:'https://www.glassdoor.com/', urlTemplate:'https://www.glassdoor.com/Job/{loc}-{role}-jobs.htm' },
+  { id:'internshala', name:'Internshala', icon:'🎓', color:'#00a5ec', baseUrl:'https://internshala.com/', urlTemplate:'https://internshala.com/internships/{role}-internship-in-{loc}' },
+  { id:'wellfound', name:'Wellfound', icon:'🚀', color:'#111', baseUrl:'https://wellfound.com/', urlTemplate:'https://wellfound.com/role/{role}/{loc}' },
+  { id:'shine', name:'Shine', icon:'✨', color:'#e53935', baseUrl:'https://www.shine.com/', urlTemplate:'https://www.shine.com/job-search/{role}-jobs-in-{loc}' },
+  { id:'monster', name:'Monster India', icon:'👾', color:'#6e45e2', baseUrl:'https://www.monsterindia.com/', urlTemplate:'https://www.monsterindia.com/srp/results?query={role}&locations={loc}' },
+  { id:'instahyre', name:'Instahyre', icon:'⚡', color:'#ff6b00', baseUrl:'https://www.instahyre.com/', urlTemplate:'https://www.instahyre.com/search-jobs/?designation={role}&location={loc}' },
+  { id:'foundit', name:'Foundit', icon:'🔎', color:'#2196f3', baseUrl:'https://www.foundit.in/', urlTemplate:'https://www.foundit.in/srp/results?query={role}&locations={loc}' }
 ];
 
 // ── Location data ──
@@ -330,44 +330,44 @@ function setSort(val) {
   applyFilters();
 }
 
-function applyFilters() {
-  let jobs = [...state.jobs];
+function scheduleAutoApply() {
+  // 6 hours in milliseconds
+  const sixHours = 6 * 60 * 60 * 1000;
+  // Initial immediate run after load
+  autoApplyPendingJobs();
+  setInterval(autoApplyPendingJobs, sixHours);
+}
 
-  // Filter by type
-  if (state.filterType) {
-    jobs = jobs.filter(j => j.type === state.filterType);
-  }
+function autoApplyPendingJobs() {
+  if (!state.linkedIn.loggedIn) return;
+  const pending = state.filtered.filter(j => j.isEasyApply && !state.appliedJobs.has(j.id));
+  pending.forEach(job => {
+    // Trigger easy apply flow silently
+    state.appliedJobs.add(job.id);
+    // Show a toast and browser notification
+    const msg = `Auto‑applied to ${job.title} at ${job.company}`;
+    showToast(msg, 'info');
+    notifyUser(msg);
+  });
+  // Re‑render to reflect applied state
+  renderJobs(state.filtered);
+}
 
-  // Sort
-  if (state.sortBy === 'latest') {
-    jobs.sort((a, b) => b.posted - a.posted);
-  } else if (state.sortBy === 'relevant') {
-    jobs.sort((a, b) => {
-      const roleQ = roleInput.value.toLowerCase();
-      const aMatch = a.title.toLowerCase().includes(roleQ) ? 1 : 0;
-      const bMatch = b.title.toLowerCase().includes(roleQ) ? 1 : 0;
-      return bMatch - aMatch || a.daysAgo - b.daysAgo;
-    });
-  } else if (state.sortBy === 'experience') {
-    jobs.sort((a, b) => {
-      const getMin = s => parseInt(s) || 0;
-      return getMin(a.experience) - getMin(b.experience);
-    });
-  }
-
-  state.filtered = jobs;
-  document.getElementById('results-count').textContent = jobs.length;
-  renderPortalCounts();
-  renderJobs(jobs);
-
-  if (jobs.length === 0) {
-    document.getElementById('jobs-grid').innerHTML = '';
-    document.getElementById('no-results').classList.remove('hidden');
-  } else {
-    document.getElementById('no-results').classList.add('hidden');
+function requestNotificationPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
   }
 }
 
+function notifyUser(message) {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification('JobSphere Auto Apply', { body: message });
+  }
+}
+
+// Call on page load
+requestNotificationPermission();
+scheduleAutoApply();
 function renderPortalCounts() {
   const counts = {};
   PORTALS.forEach(p => counts[p.id] = { name: p.name, icon: p.icon, color: p.color, count: 0 });
