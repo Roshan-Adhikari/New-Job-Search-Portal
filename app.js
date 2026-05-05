@@ -332,6 +332,44 @@ function setSort(val) {
   applyFilters();
 }
 
+function applyFilters() {
+  let jobs = [...state.jobs];
+
+  // Filter by type
+  if (state.filterType) {
+    jobs = jobs.filter(j => j.type === state.filterType);
+  }
+
+  // Sort
+  if (state.sortBy === 'latest') {
+    jobs.sort((a, b) => b.posted - a.posted);
+  } else if (state.sortBy === 'relevant') {
+    jobs.sort((a, b) => {
+      const roleQ = roleInput.value.toLowerCase();
+      const aMatch = a.title.toLowerCase().includes(roleQ) ? 1 : 0;
+      const bMatch = b.title.toLowerCase().includes(roleQ) ? 1 : 0;
+      return bMatch - aMatch || a.daysAgo - b.daysAgo;
+    });
+  } else if (state.sortBy === 'experience') {
+    jobs.sort((a, b) => {
+      const getMin = s => parseInt(s) || 0;
+      return getMin(a.experience) - getMin(b.experience);
+    });
+  }
+
+  state.filtered = jobs;
+  document.getElementById('results-count').textContent = jobs.length;
+  renderPortalCounts();
+  renderJobs(jobs);
+
+  if (jobs.length === 0) {
+    document.getElementById('jobs-grid').innerHTML = '';
+    document.getElementById('no-results').classList.remove('hidden');
+  } else {
+    document.getElementById('no-results').classList.add('hidden');
+  }
+}
+
 function scheduleAutoApply() {
   // 6 hours in milliseconds
   const sixHours = 6 * 60 * 60 * 1000;
