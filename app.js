@@ -293,11 +293,9 @@ function generateJobsForPortal(portal, role, loc) {
     const posted = new Date(Date.now() - daysAgo * 86400000);
     const isEasyApply = portal.id === 'linkedin' && Math.random() > 0.3;
 
-    const applyUrl = portal.id === 'linkedin'
-      ? `https://www.linkedin.com/jobs/view/${Date.now()}-${i}`
-      : portal.urlTemplate
-          .replace('{role}', encodeURIComponent(role))
-          .replace('{loc}', encodeURIComponent(loc));
+    const applyUrl = portal.urlTemplate
+      .replace('{role}', encodeURIComponent(role))
+      .replace('{loc}', encodeURIComponent(loc));
 
     jobs.push({
       id: `${portal.id}-${Date.now()}-${i}`,
