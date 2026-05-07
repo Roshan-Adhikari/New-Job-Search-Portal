@@ -20,7 +20,7 @@ const PORTALS = [
 // ── Location data ──
 const LOCATIONS = {
   'Popular Cities': ['Bangalore','Mumbai','Delhi','Hyderabad','Pune','Chennai','Kolkata','Ahmedabad','Noida','Gurgaon','Jaipur'],
-  'Remote': ['Remote (India)','Remote / Work from Home'],
+  'Remote': ['Remote','Remote (India)','Remote / Work from Home','Work From Home','Online / Remote','Remote Worldwide'],
   'International': ['USA','UK','UAE','Canada','Singapore','Australia','Germany']
 };
 
@@ -170,8 +170,9 @@ document.addEventListener('click', (e) => {
 
 function renderRoleSuggestions(query) {
   const q = query.toLowerCase().trim();
-  if (!q) { roleSugg.classList.add('hidden'); return; }
-  const matches = ROLE_SUGGESTIONS.filter(r => r.toLowerCase().includes(q)).slice(0, 8);
+  const matches = !q
+    ? ROLE_SUGGESTIONS
+    : ROLE_SUGGESTIONS.filter(r => r.toLowerCase().includes(q));
   if (matches.length === 0) { roleSugg.classList.add('hidden'); return; }
   roleSugg.innerHTML = matches.map(r => `<div class="dd-item" onclick="selectRole('${r}')">${r}</div>`).join('');
   roleSugg.classList.remove('hidden');
@@ -252,7 +253,8 @@ function linkedInSignOut() {
 // ═══ SEARCH ENGINE ═══
 function triggerSearch() {
   const role = roleInput.value.trim();
-  const loc = locInput.value.trim();
+  const remoteOnly = document.getElementById('remote-only')?.checked;
+  const loc = remoteOnly ? 'Remote' : locInput.value.trim();
   if (!role) { showToast('Please enter a job title or role', 'error'); roleInput.focus(); return; }
   if (!loc) { showToast('Please enter a location', 'error'); locInput.focus(); return; }
 
@@ -361,14 +363,15 @@ async function runResumeSearch() {
     showToast('Please upload resume first', 'error');
     return;
   }
-  if (!locInput.value.trim()) {
+  const remoteOnly = document.getElementById('remote-only')?.checked;
+  if (!remoteOnly && !locInput.value.trim()) {
     showToast('Enter location before resume-based search', 'error');
     locInput.focus();
     return;
   }
 
   const roles = state.resume.roles.slice(0, 4);
-  const loc = locInput.value.trim();
+  const loc = remoteOnly ? 'Remote' : locInput.value.trim();
   const loadingEl = document.getElementById('search-loading');
   const loadingText = document.getElementById('loading-text');
   const progressEl = document.getElementById('portal-progress');
@@ -771,6 +774,13 @@ function trackJob(jobId) {
   renderJobs(state.filtered);
   showToast(`Tracking ${job.title} at ${job.company}`, 'info');
 }
+
+document.getElementById('remote-only')?.addEventListener('change', (e) => {
+  if (e.target.checked) {
+    locInput.value = 'Remote';
+    showToast('Remote mode enabled', 'info');
+  }
+});
 
 function updateApplicationStatus(jobId, status) {
   const row = state.applications.find(a => a.jobId === jobId);
