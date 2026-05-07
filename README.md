@@ -1,6 +1,6 @@
 # JobSphere – Smart Job Search Agent
 
-Search for jobs across **10 major job portals** simultaneously from one clean dashboard.
+Search for jobs across major portals from one dashboard, now with an Express + SQLite backend for syncing profile and application tracker data.
 
 ## Features
 
@@ -8,44 +8,64 @@ Search for jobs across **10 major job portals** simultaneously from one clean da
 - **Smart Filters** – Filter by Full-time, Part-time, Contract, Internship
 - **Sorting** – Latest, Most Relevant, Experience Level
 - **Portal Count Summary** – See how many jobs found per portal
-- **LinkedIn Easy Apply** – Connect your LinkedIn account and apply with one click
+- **Resume Upload (.txt/.pdf)** – Upload resume and extract matching job roles
+- **Resume-Based Search** – Search multiple matching roles from your resume in one action
+- **Live Jobs API** – Optional live remote jobs from Remotive API
+- **LinkedIn Easy Apply Helper** – Open LinkedIn Easy Apply jobs in bulk tabs
+- **Application Tracker** – Track each job through Saved, Applied, Interview, Rejected, Offer
+- **Profile Autofill** – Save profile fields and reuse in Easy Apply preview
 - **Dark/Light Mode** – Toggle theme with full dark mode support
 - **Responsive** – Works on desktop, tablet, and mobile
 - **Direct Apply Links** – Each job opens the original portal in a new tab
 
 ## Tech Stack
 
-- HTML5, CSS3 (Vanilla), JavaScript (Vanilla)
-- No frameworks or dependencies
+- Frontend: HTML5, CSS3 (Vanilla), JavaScript (Vanilla)
+- Backend: Node.js, Express, SQLite (`better-sqlite3`)
 - Google Fonts (Inter, DM Sans, DM Mono)
 
 ## How to Use
 
-1. Open `index.html` in any browser
-2. Enter a job role (e.g., "Product Manager")
-3. Select a location (e.g., "Bangalore")
-4. Click **Search Jobs**
-5. Browse results, filter by type, sort as needed
-6. Click **Apply** to open the job on the original portal
+1. Install dependencies:
+   - `npm install`
+2. Start the app server:
+   - `npm start`
+3. Open `http://localhost:3000`
+4. Enter a job role (e.g., "Product Manager")
+5. Select a location (e.g., "Bangalore")
+6. Click **Search Jobs**
+7. Browse results, filter by type, sort as needed
+8. Click **Apply** to open the job on the original portal
 
-### LinkedIn Easy Apply
+### Resume + Easy Apply Flow
 
-1. Click **Connect LinkedIn** in the header
-2. Enter your LinkedIn credentials (stored locally only)
-3. Jobs with Easy Apply badge will show an **⚡ Easy Apply** button
-4. Click to auto-apply directly from JobSphere
+1. Upload a resume file (`.txt` or `.pdf`)
+2. App extracts top role matches from your resume
+3. Click **Search Jobs From Resume** to search all portals for those roles
+4. Connect LinkedIn in the header (local demo session)
+5. Click **⚡ Open LinkedIn Easy Apply Jobs** to open job tabs
+6. Complete Easy Apply steps on LinkedIn pages
+7. Track progress in the in-app Application Tracker
+
+## Backend APIs
+
+- `GET /api/health` – health check
+- `GET /api/profile` – fetch saved autofill profile
+- `PUT /api/profile` – save autofill profile
+- `GET /api/applications` – fetch application tracker rows
+- `PUT /api/applications` – upsert application tracker rows
 
 ## Architecture
 
-The app is designed with a modular `generateJobsForPortal()` function that can be replaced with real API integrations when available. The portal definitions in `PORTALS` array make it easy to add or remove job sources.
+The frontend still uses modular `generateJobsForPortal()` for static portal simulation and optional live Remotive API jobs. Profile and tracker states are synced to SQLite through Express APIs, so your history persists on the server.
 
 ## Future Roadmap
 
 - [ ] Real API integrations for each portal
-- [ ] LinkedIn Easy Apply automation via OAuth
-- [ ] Resume upload and auto-fill
+- [ ] Real OAuth integration for LinkedIn (official APIs where available)
+- [x] Resume upload and auto-fill
 - [ ] Job alerts and saved searches
-- [ ] Application tracking dashboard
+- [x] Application tracking dashboard
 
 ## License
 

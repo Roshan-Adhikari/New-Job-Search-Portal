@@ -74,6 +74,19 @@
         <span class="search-btn-icon">→</span>
       </button>
     </div>
+    <div class="resume-panel">
+      <label class="resume-upload-btn" for="resume-file">📄 Upload Resume (.txt)</label>
+      <input type="file" id="resume-file" accept=".txt,.md,.json,.pdf,text/plain,application/json,application/pdf">
+      <span class="resume-status" id="resume-status">No resume uploaded</span>
+      <div class="resume-actions hidden" id="resume-actions">
+        <button class="resume-action-btn" onclick="runResumeSearch()">Search Jobs From Resume</button>
+      </div>
+      <label class="live-jobs-toggle">
+        <input type="checkbox" id="include-live-jobs" checked>
+        Include live API jobs
+      </label>
+      <div class="resume-role-chips hidden" id="resume-role-chips"></div>
+    </div>
 
     <!-- Portal badges row -->
     <div class="portal-badges">
@@ -108,20 +121,13 @@
         <span>⚡</span>
         <div>
           <strong>Enable LinkedIn Easy Apply</strong>
-          <p>Connect your account to auto-apply to jobs with "Easy Apply" directly from JobSphere.</p>
+          <p>Connect your profile to unlock LinkedIn Easy Apply shortcuts and tracking.</p>
         </div>
       </div>
       <div class="modal-form">
         <div class="form-group">
-          <label class="form-label" for="li-email">Email or Phone</label>
+          <label class="form-label" for="li-email">Email</label>
           <input type="email" id="li-email" class="form-input" placeholder="Enter your LinkedIn email" autocomplete="email">
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="li-password">Password</label>
-          <div class="password-wrap">
-            <input type="password" id="li-password" class="form-input" placeholder="Enter your password" autocomplete="current-password">
-            <button type="button" class="pw-toggle" onclick="togglePasswordVisibility()" title="Show/hide password">👁</button>
-          </div>
         </div>
         <div class="form-checkbox">
           <input type="checkbox" id="li-remember" checked>
@@ -132,7 +138,7 @@
           Sign in & Enable Easy Apply
         </button>
         <div class="modal-disclaimer">
-          <p>🔒 Your credentials are stored locally only and used to enable Easy Apply automation. JobSphere does not store or transmit your password to any server.</p>
+          <p>🔒 This is a local demo connection for your browser session only. No password collection and no server-side storage.</p>
         </div>
       </div>
     </div>
@@ -203,6 +209,29 @@
             <option value="experience">Experience Level</option>
           </select>
         </div>
+        <button class="bulk-linkedin-btn hidden" id="bulk-linkedin-btn" onclick="bulkOpenLinkedInEasyApply()">
+          ⚡ Open LinkedIn Easy Apply Jobs
+        </button>
+      </div>
+    </div>
+    <div class="tracker-wrap">
+      <div class="tracker-head">
+        <h3>Application Tracker</h3>
+        <span id="tracker-count">0 tracked</span>
+      </div>
+      <div class="tracker-table-wrap">
+        <table class="tracker-table">
+          <thead>
+            <tr>
+              <th>Role</th>
+              <th>Company</th>
+              <th>Portal</th>
+              <th>Status</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody id="tracker-body"></tbody>
+        </table>
       </div>
     </div>
 
@@ -276,6 +305,14 @@
         <div class="ea-info-row"><span class="ea-info-label">Company</span><span class="ea-info-val" id="ea-comp"></span></div>
         <div class="ea-info-row"><span class="ea-info-label">Location</span><span class="ea-info-val" id="ea-loc"></span></div>
         <div class="ea-info-row"><span class="ea-info-label">Type</span><span class="ea-info-val" id="ea-type"></span></div>
+        <div class="ea-autofill-box">
+          <label class="ea-autofill-toggle">
+            <input type="checkbox" id="ea-use-profile" checked>
+            Use saved profile autofill
+          </label>
+          <button class="btn-ghost-sm" onclick="openProfileModal()">Edit Profile</button>
+          <pre class="ea-autofill-preview" id="ea-autofill-preview"></pre>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn-ghost-sm" onclick="closeEasyApply()">Cancel</button>
@@ -285,14 +322,54 @@
   </div>
 </div>
 
+<!-- ── PROFILE MODAL ── -->
+<div class="modal-overlay hidden" id="profile-modal-overlay" onclick="closeProfileModal(event)">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="profile-title">
+    <div class="modal-header">
+      <div class="modal-header-left">
+        <h2 class="modal-title" id="profile-title">Autofill Profile</h2>
+      </div>
+      <button class="modal-close" onclick="closeProfileModal()" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label" for="pf-name">Full Name</label>
+        <input class="form-input" id="pf-name" type="text" placeholder="Your full name">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="pf-email">Email</label>
+        <input class="form-input" id="pf-email" type="email" placeholder="name@email.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="pf-phone">Phone</label>
+        <input class="form-input" id="pf-phone" type="text" placeholder="+91...">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="pf-exp">Experience</label>
+        <input class="form-input" id="pf-exp" type="text" placeholder="e.g. 4 years in Product Ops">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="pf-skills">Skills (comma separated)</label>
+        <input class="form-input" id="pf-skills" type="text" placeholder="Operations, SQL, Stakeholder Mgmt">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="pf-cover">Default Cover Note</label>
+        <textarea class="form-input" id="pf-cover" rows="4" placeholder="Short default cover note"></textarea>
+      </div>
+      <button class="li-login-btn" onclick="saveProfile()">Save Profile</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── TOAST CONTAINER ── -->
 <div class="toast-container" id="toast-container" aria-live="polite" role="status"></div>
 
 <!-- ── FOOTER ── -->
 <footer class="footer">
-  <p>JobSphere &copy; 2025 · Searches real portals via direct links · <span class="footer-note">LinkedIn Easy Apply feature requires LinkedIn credentials stored locally only</span></p>
+  <p>JobSphere &copy; 2025 · Searches portals via direct links · <span class="footer-note">Easy Apply must be completed on each portal in your own account session</span></p>
 </footer>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.5.136/pdf.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

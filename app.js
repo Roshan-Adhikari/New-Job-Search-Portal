@@ -13,7 +13,8 @@ const PORTALS = [
   { id:'shine', name:'Shine', icon:'✨', color:'#e53935', baseUrl:'https://www.shine.com/', urlTemplate:'https://www.shine.com/job-search/{role}-jobs-in-{loc}' },
   { id:'monster', name:'Monster India', icon:'👾', color:'#6e45e2', baseUrl:'https://www.monsterindia.com/', urlTemplate:'https://www.monsterindia.com/srp/results?query={role}&locations={loc}' },
   { id:'instahyre', name:'Instahyre', icon:'⚡', color:'#ff6b00', baseUrl:'https://www.instahyre.com/', urlTemplate:'https://www.instahyre.com/search-jobs/?designation={role}&location={loc}' },
-  { id:'foundit', name:'Foundit', icon:'🔎', color:'#2196f3', baseUrl:'https://www.foundit.in/', urlTemplate:'https://www.foundit.in/srp/results?query={role}&locations={loc}' }
+  { id:'foundit', name:'Foundit', icon:'🔎', color:'#2196f3', baseUrl:'https://www.foundit.in/', urlTemplate:'https://www.foundit.in/srp/results?query={role}&locations={loc}' },
+  { id:'remotive', name:'Remotive API', icon:'🌐', color:'#0ea5e9', baseUrl:'https://remotive.com/', urlTemplate:'https://remotive.com/remote-jobs/search?search={role}' }
 ];
 
 // ── Location data ──
@@ -48,8 +49,46 @@ let state = {
   filterType: '',
   sortBy: 'latest',
   linkedIn: { loggedIn: false, email: '', name: '' },
-  appliedJobs: new Set()
+  appliedJobs: new Set(),
+  resume: { uploaded: false, filename: '', text: '', roles: [] },
+  profile: {
+    name: '',
+    email: '',
+    phone: '',
+    experience: '',
+    skills: '',
+    coverNote: ''
+  },
+  applications: []
 };
+const runtime = {
+  backendReady: false
+};
+
+async function detectBackend() {
+  try {
+    const res = await fetch('/api/health');
+    runtime.backendReady = res.ok;
+  } catch (e) {
+    runtime.backendReady = false;
+  }
+}
+
+async function fetchJson(url) {
+  const res = await fetch(url, { headers: { 'Content-Type': 'application/json' } });
+  if (!res.ok) throw new Error(`Request failed for ${url}`);
+  return res.json();
+}
+
+async function putJson(url, data) {
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) throw new Error(`PUT failed for ${url}`);
+  return res.json();
+}
 
 // ═══ THEME ═══
 function toggleTheme() {
@@ -134,15 +173,9 @@ function closeLinkedInModal(e) {
   document.getElementById('linkedin-modal-overlay').classList.add('hidden');
 }
 
-function togglePasswordVisibility() {
-  const pw = document.getElementById('li-password');
-  pw.type = pw.type === 'password' ? 'text' : 'password';
-}
-
 function linkedInLogin() {
   const email = document.getElementById('li-email').value.trim();
-  const pass = document.getElementById('li-password').value;
-  if (!email || !pass) { showToast('Please enter both email and password', 'error'); return; }
+  if (!email) { showToast('Please enter your LinkedIn email', 'error'); return; }
 
   const btn = document.getElementById('li-login-btn');
   btn.innerHTML = '<span class="lorb" style="width:14px;height:14px;background:#fff;animation:lorbPulse .6s infinite"></span> Signing in...';
@@ -151,6 +184,10 @@ function linkedInLogin() {
   setTimeout(() => {
     const name = email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     state.linkedIn = { loggedIn: true, email, name };
+    if (!state.profile.email) {
+      state.profile.email = email;
+      persistProfile();
+    }
     localStorage.setItem('jobsphere-li', JSON.stringify({ email, name }));
 
     document.getElementById('linkedin-signin-btn').classList.add('hidden');
@@ -221,6 +258,150 @@ function triggerSearch() {
   animateSearch(role, loc);
 }
 
+function normalizeRole(role) {
+  return role
+    .replace(/\s+/g, ' ')
+    .replace(/\b(\w)/g, c => c.toUpperCase())
+    .trim();
+}
+
+function extractRolesFromResume(text) {
+  const source = text.toLowerCase();
+  const matched = ROLE_SUGGESTIONS.filter(role => {
+    const token = role.toLowerCase();
+    return source.includes(token);
+  });
+
+  const extraPatterns = [
+    /(?:as|role|position|worked as|experience as)\s+([a-z ]{4,40})/g,
+    /(?:skills|expertise|specialization)\s*[:\-]\s*([a-z ,]{6,120})/g
+  ];
+  const extras = new Set();
+  extraPatterns.forEach(pattern => {
+    let hit;
+    while ((hit = pattern.exec(source)) !== null) {
+      const raw = hit[1].split(',').map(v => normalizeRole(v));
+      raw.forEach(v => {
+        if (v.length > 3 && v.length < 40 && /^[a-zA-Z ]+$/.test(v)) extras.add(v);
+      });
+    }
+  });
+
+  const roles = [...new Set([...matched, ...extras])].slice(0, 6);
+  return roles.length ? roles : [normalizeRole(roleInput.value || 'Software Engineer')];
+}
+
+function handleResumeUpload(file) {
+  if (!file) return;
+  const status = document.getElementById('resume-status');
+  status.textContent = 'Reading resume...';
+  const reader = new FileReader();
+  reader.onload = async () => {
+    let text = String(reader.result || '');
+    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      text = await extractTextFromPdf(file);
+      if (!text) {
+        status.textContent = 'Could not parse PDF. Try text resume.';
+        showToast('PDF parsing failed. Use text resume for now.', 'error');
+        return;
+      }
+    }
+    state.resume = {
+      uploaded: true,
+      filename: file.name,
+      text,
+      roles: extractRolesFromResume(text)
+    };
+    renderResumeRoles();
+    status.textContent = `Resume loaded: ${file.name}`;
+    document.getElementById('resume-actions').classList.remove('hidden');
+    showToast('Resume uploaded. Ready to search matching jobs.', 'success');
+  };
+  reader.onerror = () => {
+    status.textContent = 'Failed to read resume. Upload a plain text file.';
+    showToast('Could not read resume file', 'error');
+  };
+  if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+    reader.readAsArrayBuffer(file);
+  } else {
+    reader.readAsText(file);
+  }
+}
+
+function renderResumeRoles() {
+  const wrap = document.getElementById('resume-role-chips');
+  if (!state.resume.uploaded || state.resume.roles.length === 0) {
+    wrap.classList.add('hidden');
+    wrap.innerHTML = '';
+    return;
+  }
+  wrap.innerHTML = state.resume.roles
+    .map(role => `<button class="resume-role-chip" onclick="useResumeRole('${role.replace(/'/g, "\\'")}')">${role}</button>`)
+    .join('');
+  wrap.classList.remove('hidden');
+}
+
+function useResumeRole(role) {
+  roleInput.value = role;
+  showToast(`Role set from resume: ${role}`, 'info');
+}
+
+async function runResumeSearch() {
+  if (!state.resume.uploaded || state.resume.roles.length === 0) {
+    showToast('Please upload resume first', 'error');
+    return;
+  }
+  if (!locInput.value.trim()) {
+    showToast('Enter location before resume-based search', 'error');
+    locInput.focus();
+    return;
+  }
+
+  const roles = state.resume.roles.slice(0, 4);
+  const loc = locInput.value.trim();
+  const loadingEl = document.getElementById('search-loading');
+  const loadingText = document.getElementById('loading-text');
+  const progressEl = document.getElementById('portal-progress');
+
+  document.getElementById('empty-state').classList.add('hidden');
+  document.getElementById('results-area').classList.remove('hidden');
+  loadingEl.classList.remove('hidden');
+  document.getElementById('jobs-grid').innerHTML = '';
+  document.getElementById('no-results').classList.add('hidden');
+  document.getElementById('portal-count-bar').innerHTML = '';
+  document.getElementById('results-query-role').textContent = `${roles.join(', ')}`;
+  document.getElementById('results-query-loc').textContent = loc;
+  document.getElementById('results-count').textContent = '...';
+
+  progressEl.innerHTML = roles.map(r => `<span class="pp-chip" id="pp-role-${slugify(r)}">${r}</span>`).join('');
+  let allJobs = [];
+  for (const role of roles) {
+    const chipId = `pp-role-${slugify(role)}`;
+    loadingText.textContent = `Searching jobs for ${role}...`;
+    const chip = document.getElementById(chipId);
+    if (chip) chip.classList.add('active');
+    await sleep(250);
+    const staticPortals = PORTALS.filter(p => p.id !== 'remotive');
+    const staticJobs = staticPortals.flatMap(p => generateJobsForPortal(p, role, loc));
+    const liveJobs = document.getElementById('include-live-jobs').checked ? await fetchLiveJobs(role, loc) : [];
+    const batches = staticJobs.concat(liveJobs);
+    allJobs = allJobs.concat(batches);
+    if (chip) {
+      chip.classList.remove('active');
+      chip.classList.add('done');
+    }
+  }
+  loadingEl.classList.add('hidden');
+  state.jobs = allJobs;
+  state.filterType = '';
+  state.sortBy = 'latest';
+  document.querySelectorAll('#filter-type .fpill').forEach(b => b.classList.remove('active'));
+  document.querySelector('#filter-type .fpill[data-val=""]').classList.add('active');
+  document.getElementById('sort-select').value = 'latest';
+  applyFilters();
+  showToast(`Found jobs for ${roles.length} resume roles`, 'success');
+}
+
 // Allow Enter to search
 roleInput.addEventListener('keydown', e => { if (e.key === 'Enter') triggerSearch(); });
 locInput.addEventListener('keydown', e => { if (e.key === 'Enter') triggerSearch(); });
@@ -230,11 +411,12 @@ async function animateSearch(role, loc) {
   const loadingText = document.getElementById('loading-text');
   const progressEl = document.getElementById('portal-progress');
 
-  progressEl.innerHTML = PORTALS.map(p => `<span class="pp-chip" id="pp-${p.id}">${p.icon} ${p.name}</span>`).join('');
+  const staticPortals = PORTALS.filter(p => p.id !== 'remotive');
+  progressEl.innerHTML = staticPortals.map(p => `<span class="pp-chip" id="pp-${p.id}">${p.icon} ${p.name}</span>`).join('');
 
   let allJobs = [];
-  for (let i = 0; i < PORTALS.length; i++) {
-    const portal = PORTALS[i];
+  for (let i = 0; i < staticPortals.length; i++) {
+    const portal = staticPortals[i];
     loadingText.textContent = `Searching ${portal.name}…`;
     document.getElementById(`pp-${portal.id}`).classList.add('active');
 
@@ -245,6 +427,11 @@ async function animateSearch(role, loc) {
 
     document.getElementById(`pp-${portal.id}`).classList.remove('active');
     document.getElementById(`pp-${portal.id}`).classList.add('done');
+  }
+  if (document.getElementById('include-live-jobs')?.checked) {
+    loadingText.textContent = 'Fetching live API jobs…';
+    const live = await fetchLiveJobs(role, loc);
+    allJobs = allJobs.concat(live);
   }
 
   loadingEl.classList.add('hidden');
@@ -359,6 +546,7 @@ function applyFilters() {
   document.getElementById('results-count').textContent = jobs.length;
   renderPortalCounts();
   renderJobs(jobs);
+  toggleBulkLinkedInButton(jobs);
 
   if (jobs.length === 0) {
     document.getElementById('jobs-grid').innerHTML = '';
@@ -366,6 +554,55 @@ function applyFilters() {
   } else {
     document.getElementById('no-results').classList.add('hidden');
   }
+}
+
+async function fetchLiveJobs(role, loc) {
+  try {
+    const res = await fetch(`https://remotive.com/api/remote-jobs?search=${encodeURIComponent(role)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const items = Array.isArray(data.jobs) ? data.jobs.slice(0, 12) : [];
+    return items.map((j, i) => ({
+      id: `remotive-${j.id || Date.now()}-${i}`,
+      title: j.title || role,
+      company: j.company_name || 'Unknown Company',
+      location: j.candidate_required_location || loc || 'Remote',
+      type: j.job_type || 'Full-time',
+      experience: 'Not specified',
+      posted: new Date(j.publication_date || Date.now()),
+      daysAgo: 0,
+      portal: 'remotive',
+      portalName: 'Remotive API',
+      portalIcon: '🌐',
+      portalColor: '#0ea5e9',
+      applyUrl: j.url || 'https://remotive.com/',
+      isEasyApply: false
+    }));
+  } catch (e) {
+    return [];
+  }
+}
+
+function toggleBulkLinkedInButton(jobs) {
+  const btn = document.getElementById('bulk-linkedin-btn');
+  if (!btn) return;
+  const easyLinkedInCount = jobs.filter(j => j.portal === 'linkedin' && j.isEasyApply).length;
+  if (easyLinkedInCount > 0) {
+    btn.classList.remove('hidden');
+    btn.textContent = `⚡ Open ${easyLinkedInCount} LinkedIn Easy Apply Jobs`;
+  } else {
+    btn.classList.add('hidden');
+  }
+}
+
+function bulkOpenLinkedInEasyApply() {
+  const jobs = state.filtered.filter(j => j.portal === 'linkedin' && j.isEasyApply).slice(0, 10);
+  if (jobs.length === 0) {
+    showToast('No LinkedIn Easy Apply jobs available', 'info');
+    return;
+  }
+  jobs.forEach(j => window.open(j.applyUrl, '_blank', 'noopener'));
+  showToast(`Opened ${jobs.length} LinkedIn job tabs. Complete Easy Apply on LinkedIn.`, 'success');
 }
 
 function scheduleAutoApply() {
@@ -424,6 +661,7 @@ function renderJobs(jobs) {
   grid.innerHTML = jobs.map((job, i) => {
     const dateStr = formatDate(job.posted);
     const daysLabel = job.daysAgo === 0 ? 'Today' : job.daysAgo === 1 ? 'Yesterday' : `${job.daysAgo}d ago`;
+    const tracked = state.applications.some(a => a.jobId === job.id);
     const easyApplyBtn = job.isEasyApply && state.linkedIn.loggedIn
       ? `<button class="job-easy-apply-btn ${state.appliedJobs.has(job.id) ? 'applied' : ''}" onclick="easyApply('${job.id}')" ${state.appliedJobs.has(job.id) ? 'disabled' : ''}>
            ${state.appliedJobs.has(job.id) ? '✅ Applied' : '⚡ Easy Apply'}
@@ -447,6 +685,7 @@ function renderJobs(jobs) {
       <div class="job-actions">
         <a class="job-apply-btn" href="${job.applyUrl}" target="_blank" rel="noopener">↗ Apply on ${job.portalName}</a>
         ${easyApplyBtn}
+        <button class="job-track-btn" onclick="trackJob('${job.id}')">${tracked ? '📌 Tracked' : '➕ Track'}</button>
       </div>
     </div>`;
   }).join('');
@@ -454,6 +693,10 @@ function renderJobs(jobs) {
 
 function formatDate(d) {
   return d.toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
+}
+
+function slugify(v) {
+  return v.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 }
 
 // ═══ EASY APPLY ═══
@@ -475,6 +718,7 @@ function easyApply(jobId) {
   document.getElementById('ea-comp').textContent = job.company;
   document.getElementById('ea-loc').textContent = job.location;
   document.getElementById('ea-type').textContent = job.type;
+  updateAutofillPreview(job);
 
   // Reset steps
   ['ea-step-1','ea-step-2','ea-step-3'].forEach(id => {
@@ -512,11 +756,185 @@ function confirmEasyApply() {
     btn.style.background = '#10b981';
 
     state.appliedJobs.add(currentEasyApplyJob.id);
+    upsertApplication(currentEasyApplyJob, 'Applied');
     renderJobs(state.filtered);
+    renderApplicationTracker();
     showToast(`✅ Applied to ${currentEasyApplyJob.title} at ${currentEasyApplyJob.company}!`, 'success');
 
     setTimeout(() => closeEasyApply(), 1500);
   }, 1500);
+}
+
+function upsertApplication(job, status) {
+  const existing = state.applications.find(a => a.jobId === job.id);
+  if (existing) {
+    existing.status = status;
+    existing.updatedAt = new Date();
+    persistApplications();
+    return;
+  }
+  state.applications.unshift({
+    jobId: job.id,
+    title: job.title,
+    company: job.company,
+    portalName: job.portalName,
+    status,
+    updatedAt: new Date()
+  });
+  persistApplications();
+}
+
+function trackJob(jobId) {
+  const job = state.filtered.find(j => j.id === jobId);
+  if (!job) return;
+  upsertApplication(job, 'Saved');
+  renderApplicationTracker();
+  renderJobs(state.filtered);
+  showToast(`Tracking ${job.title} at ${job.company}`, 'info');
+}
+
+function updateApplicationStatus(jobId, status) {
+  const row = state.applications.find(a => a.jobId === jobId);
+  if (!row) return;
+  row.status = status;
+  row.updatedAt = new Date();
+  persistApplications();
+  renderApplicationTracker();
+}
+
+function renderApplicationTracker() {
+  const body = document.getElementById('tracker-body');
+  const count = document.getElementById('tracker-count');
+  if (!body || !count) return;
+  count.textContent = `${state.applications.length} tracked`;
+  if (state.applications.length === 0) {
+    body.innerHTML = `<tr><td colspan="5" class="tracker-empty">No applications tracked yet</td></tr>`;
+    return;
+  }
+  body.innerHTML = state.applications.map(row => `
+    <tr>
+      <td>${row.title}</td>
+      <td>${row.company}</td>
+      <td>${row.portalName}</td>
+      <td>
+        <select data-job="${row.jobId}" class="tracker-status">
+          ${['Saved', 'Applied', 'Interview', 'Rejected', 'Offer'].map(s => `<option value="${s}" ${row.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+        </select>
+      </td>
+      <td>${new Date(row.updatedAt).toLocaleString('en-IN')}</td>
+    </tr>
+  `).join('');
+
+  document.querySelectorAll('.tracker-status').forEach(sel => {
+    sel.addEventListener('change', (e) => {
+      updateApplicationStatus(e.target.getAttribute('data-job'), e.target.value);
+    });
+  });
+}
+
+function openProfileModal() {
+  const p = state.profile;
+  document.getElementById('pf-name').value = p.name;
+  document.getElementById('pf-email').value = p.email;
+  document.getElementById('pf-phone').value = p.phone;
+  document.getElementById('pf-exp').value = p.experience;
+  document.getElementById('pf-skills').value = p.skills;
+  document.getElementById('pf-cover').value = p.coverNote;
+  document.getElementById('profile-modal-overlay').classList.remove('hidden');
+}
+
+function closeProfileModal(e) {
+  if (e && e.target !== e.currentTarget) return;
+  document.getElementById('profile-modal-overlay').classList.add('hidden');
+}
+
+function saveProfile() {
+  state.profile = {
+    name: document.getElementById('pf-name').value.trim(),
+    email: document.getElementById('pf-email').value.trim(),
+    phone: document.getElementById('pf-phone').value.trim(),
+    experience: document.getElementById('pf-exp').value.trim(),
+    skills: document.getElementById('pf-skills').value.trim(),
+    coverNote: document.getElementById('pf-cover').value.trim()
+  };
+  persistProfile();
+  closeProfileModal();
+  showToast('Autofill profile saved', 'success');
+  if (currentEasyApplyJob) updateAutofillPreview(currentEasyApplyJob);
+}
+
+function updateAutofillPreview(job) {
+  const el = document.getElementById('ea-autofill-preview');
+  if (!el) return;
+  const p = state.profile;
+  const useProfile = document.getElementById('ea-use-profile')?.checked;
+  if (!useProfile) {
+    el.textContent = 'Autofill is off for this application.';
+    return;
+  }
+  el.textContent =
+`Name: ${p.name || '-'}
+Email: ${p.email || state.linkedIn.email || '-'}
+Phone: ${p.phone || '-'}
+Experience: ${p.experience || '-'}
+Skills: ${p.skills || '-'}
+Cover Note: ${p.coverNote || `Interested in ${job.title} at ${job.company}.`}`;
+}
+
+async function extractTextFromPdf(file) {
+  try {
+    if (!window.pdfjsLib) return '';
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.5.136/pdf.worker.min.js';
+    const data = await file.arrayBuffer();
+    const doc = await window.pdfjsLib.getDocument({ data }).promise;
+    let text = '';
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items.map(item => item.str).join(' ');
+      text += ` ${pageText}`;
+    }
+    return text.trim();
+  } catch (e) {
+    return '';
+  }
+}
+
+function persistApplications() {
+  localStorage.setItem('jobsphere-applications', JSON.stringify(state.applications));
+  if (runtime.backendReady) {
+    putJson('/api/applications', state.applications).catch(() => {});
+  }
+}
+
+function persistProfile() {
+  localStorage.setItem('jobsphere-profile', JSON.stringify(state.profile));
+  if (runtime.backendReady) {
+    putJson('/api/profile', state.profile).catch(() => {});
+  }
+}
+
+async function restoreSavedData() {
+  await detectBackend();
+  if (runtime.backendReady) {
+    try {
+      const profile = await fetchJson('/api/profile');
+      if (profile && typeof profile === 'object') state.profile = { ...state.profile, ...profile };
+    } catch (e) {}
+    try {
+      const apps = await fetchJson('/api/applications');
+      if (Array.isArray(apps)) state.applications = apps;
+    } catch (e) {}
+  }
+  try {
+    const profile = JSON.parse(localStorage.getItem('jobsphere-profile'));
+    if (!runtime.backendReady && profile) state.profile = profile;
+  } catch (e) {}
+  try {
+    const apps = JSON.parse(localStorage.getItem('jobsphere-applications'));
+    if (!runtime.backendReady && Array.isArray(apps)) state.applications = apps;
+  } catch (e) {}
+  renderApplicationTracker();
 }
 
 // ═══ TOAST ═══
@@ -537,3 +955,13 @@ document.addEventListener('keydown', e => {
     roleInput.select();
   }
 });
+
+document.getElementById('resume-file').addEventListener('change', (e) => {
+  handleResumeUpload(e.target.files[0]);
+});
+
+document.getElementById('ea-use-profile').addEventListener('change', () => {
+  if (currentEasyApplyJob) updateAutofillPreview(currentEasyApplyJob);
+});
+
+restoreSavedData();
