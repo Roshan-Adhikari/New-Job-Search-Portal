@@ -10,6 +10,19 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 *
 const dbPath = path.join(__dirname, 'jobsphere.db');
 const db = new Database(dbPath);
 
+async function parsePdfWithPdfJs(buffer) {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(buffer) });
+  const pdf = await loadingTask.promise;
+  let text = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += ' ' + content.items.map((item) => item.str || '').join(' ');
+  }
+  return text.trim();
+}
+
 db.exec(`
 CREATE TABLE IF NOT EXISTS user_profile (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -48,18 +61,32 @@ app.post('/api/parse-resume', upload.single('resume'), async (req, res) => {
     const name = String(req.file.originalname || '').toLowerCase();
     let text = '';
     if (req.file.mimetype === 'application/pdf' || name.endsWith('.pdf')) {
-      const parsed = await pdfParse(req.file.buffer);
-      text = String(parsed.text || '').trim();
+      try {
+        const parsed = await pdfParse(req.file.buffer);
+        text = String(parsed.text || '').trim();
+      } catch (_err) {
+        text = '';
+      }
+      if (!text) {
+        try {
+          text = await parsePdfWithPdfJs(req.file.buffer);
+        } catch (_err) {
+          text = '';
+        }
+      }
     } else {
       text = req.file.buffer.toString('utf8').trim();
     }
     if (!text) {
-      res.status(422).json({ ok: false, error: 'No readable text found in resume file' });
+      res.status(422).json({
+        ok: false,
+        error: 'No readable text found. This PDF may be scanned/image-only. Please upload a text-based PDF or TXT resume.'
+      });
       return;
     }
     res.json({ ok: true, text });
   } catch (error) {
-    res.status(500).json({ ok: false, error: 'Failed to parse resume file' });
+    res.status(500).json({ ok: false, error: `Failed to parse resume file: ${error.message}` });
   }
 });
 
