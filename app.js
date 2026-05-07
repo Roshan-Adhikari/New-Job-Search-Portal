@@ -425,7 +425,10 @@ function extractRolesFromResume(text) {
 function handleResumeUpload(file) {
   if (!file) return;
   const status = document.getElementById('resume-status');
-  status.textContent = 'Reading resume...';
+  const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+  status.textContent = isPdf
+    ? 'Reading resume… (scanned PDFs use OCR on first pages; may take up to a minute)'
+    : 'Reading resume…';
   parseResumeByApi(file)
     .then((text) => {
       if (!text) {
@@ -584,8 +587,10 @@ function generateJobsForPortal(portal, role, loc) {
     .replace('{loc}', encodeURIComponent(loc));
   return [{
     id: `${portal.id}-${slugify(role)}-${slugify(loc)}`,
-    title: `${role} openings on ${portal.name}`,
-    company: portal.name,
+    searchRole: role,
+    searchLocation: loc,
+    title: role,
+    company: `Job search · ${portal.name}`,
     location: loc,
     type: 'Portal Search',
     experience: 'As listed on portal',
@@ -622,11 +627,21 @@ function applyFilters() {
     jobs = jobs.filter(j => j.type === state.filterType);
   }
 
+  const portalRank = (id) => (id === 'linkedin' ? 0 : id === 'naukri' ? 1 : id === 'indeed' ? 2 : 99);
+
   // Sort
   if (state.sortBy === 'latest') {
-    jobs.sort((a, b) => b.posted - a.posted);
+    jobs.sort((a, b) => {
+      const ra = portalRank(a.portal);
+      const rb = portalRank(b.portal);
+      if (ra !== rb) return ra - rb;
+      return b.posted - a.posted;
+    });
   } else if (state.sortBy === 'relevant') {
     jobs.sort((a, b) => {
+      const ra = portalRank(a.portal);
+      const rb = portalRank(b.portal);
+      if (ra !== rb) return ra - rb;
       const roleQ = roleInput.value.toLowerCase();
       const aMatch = a.title.toLowerCase().includes(roleQ) ? 1 : 0;
       const bMatch = b.title.toLowerCase().includes(roleQ) ? 1 : 0;
@@ -634,6 +649,9 @@ function applyFilters() {
     });
   } else if (state.sortBy === 'experience') {
     jobs.sort((a, b) => {
+      const ra = portalRank(a.portal);
+      const rb = portalRank(b.portal);
+      if (ra !== rb) return ra - rb;
       const getMin = s => parseInt(s) || 0;
       return getMin(a.experience) - getMin(b.experience);
     });
@@ -661,6 +679,8 @@ async function fetchLiveJobs(role, loc) {
     const items = Array.isArray(data.jobs) ? data.jobs.slice(0, 12) : [];
     return items.map((j, i) => ({
       id: `remotive-${j.id || Date.now()}-${i}`,
+      searchRole: role,
+      searchLocation: j.candidate_required_location || loc || 'Remote',
       title: j.title || role,
       company: j.company_name || 'Unknown Company',
       location: j.candidate_required_location || loc || 'Remote',
@@ -767,20 +787,33 @@ function renderJobs(jobs) {
         ? `<button class="job-easy-apply-btn" onclick="openLinkedInLogin()" style="opacity:.8">🔒 Sign in for Easy Apply</button>`
         : '';
 
-    return `<div class="job-card" data-portal="${job.portal}" role="listitem" style="animation-delay:${i * 0.05}s">
+    const exactRole = escapeHtml(job.searchRole || job.title);
+    const exactLoc = escapeHtml(job.searchLocation || job.location);
+    const linkedInQuery =
+      job.portal === 'linkedin' && job.isSearchLink
+        ? `<div class="job-linkedin-query">LinkedIn search uses this exact title: <strong>${exactRole}</strong> · Location: <strong>${exactLoc}</strong></div>`
+        : '';
+    const searchHint =
+      job.isSearchLink && job.portal !== 'linkedin'
+        ? `<div class="job-search-hint">Search query: <strong>${exactRole}</strong> · <strong>${exactLoc}</strong></div>`
+        : '';
+
+    return `<div class="job-card ${job.portal === 'linkedin' ? 'job-card-linkedin' : ''}" data-portal="${job.portal}" role="listitem" style="animation-delay:${i * 0.05}s">
       <div class="job-card-top">
-        <span class="job-portal-badge pb-${job.portal}">${job.portalIcon} ${job.portalName}</span>
-        <span class="job-type-badge">${job.type}</span>
+        <span class="job-portal-badge pb-${job.portal}">${job.portalIcon} ${escapeHtml(job.portalName)}</span>
+        <span class="job-type-badge">${escapeHtml(job.type)}</span>
       </div>
-      <div class="job-title">${job.title}</div>
-      <div class="job-company">${job.company}</div>
+      ${linkedInQuery}
+      ${searchHint}
+      <div class="job-title">${escapeHtml(job.title)}</div>
+      <div class="job-company">${escapeHtml(job.company)}</div>
       <div class="job-meta">
-        <span class="job-meta-item"><span class="job-meta-icon">📍</span>${job.location}</span>
-        <span class="job-meta-item"><span class="job-meta-icon">💼</span>${job.experience}</span>
+        <span class="job-meta-item"><span class="job-meta-icon">📍</span>${escapeHtml(job.location)}</span>
+        <span class="job-meta-item"><span class="job-meta-icon">💼</span>${escapeHtml(job.experience)}</span>
         <span class="job-meta-item"><span class="job-meta-icon">📅</span>${daysLabel}</span>
       </div>
       <div class="job-actions">
-        <a class="job-apply-btn" href="${job.applyUrl}" target="_blank" rel="noopener">${job.isSearchLink ? '↗ Open search on' : '↗ Apply on'} ${job.portalName}</a>
+        <a class="job-apply-btn" href="${job.applyUrl}" target="_blank" rel="noopener">${job.isSearchLink ? '↗ Open search on' : '↗ Apply on'} ${escapeHtml(job.portalName)}</a>
         ${easyApplyBtn}
         <button class="job-track-btn" onclick="trackJob('${job.id}')">${tracked ? '📌 Tracked' : '➕ Track'}</button>
       </div>

@@ -8,7 +8,7 @@ Search for jobs across major portals from one dashboard, now with an Express + S
 - **Smart Filters** – Filter by Full-time, Part-time, Contract, Internship
 - **Sorting** – Latest, Most Relevant, Experience Level
 - **Portal Count Summary** – See how many jobs found per portal
-- **Resume Upload (.txt/.pdf)** – Upload resume and extract matching job roles (server-side parser)
+- **Resume Upload (.txt/.pdf)** – Server-side text extract; if the PDF has no text layer (scanned), **OCR** runs on the first few pages (can take up to ~1 minute). Requires native **`canvas`** (installed with `pdf-to-img`).
 - **Resume-Based Search** – Search multiple matching roles from your resume in one action
 - **Live Jobs API** – Optional live remote jobs from Remotive API
 - **LinkedIn Easy Apply Helper** – Open LinkedIn Easy Apply jobs in bulk tabs
@@ -21,7 +21,7 @@ Search for jobs across major portals from one dashboard, now with an Express + S
 ## Tech Stack
 
 - Frontend: HTML5, CSS3 (Vanilla), JavaScript (Vanilla)
-- Backend: Node.js, Express, SQLite (`better-sqlite3`)
+- Backend: Node.js, Express, SQLite (`better-sqlite3`), PDF parsing (`pdf-parse`, `pdfjs-dist`, `pdf2json`, `pdf-to-img` + `tesseract.js` for OCR)
 - Google Fonts (Inter, DM Sans, DM Mono)
 
 ## How to Use
@@ -39,7 +39,7 @@ Search for jobs across major portals from one dashboard, now with an Express + S
 
 ### Resume + Easy Apply Flow
 
-1. Upload a resume file (`.txt` or `.pdf`)
+1. Upload a resume file (`.txt` or `.pdf`). For PDFs, wait if you see the OCR message—first upload may download language data.
 2. App extracts top role matches from your resume
 3. Click **Search Jobs From Resume** to search all portals for those roles
 4. Connect LinkedIn in the header (local demo session)

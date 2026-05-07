@@ -6,6 +6,8 @@ const Database = require('better-sqlite3');
 const multer = require('multer');
 const pdfParse = require('pdf-parse');
 const PDFParser = require('pdf2json');
+const os = require('os');
+const Tesseract = require('tesseract.js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -74,6 +76,42 @@ function parsePdfWithPdf2Json(buffer) {
   });
 }
 
+/** Scanned PDFs: rasterize pages then OCR (first pages only; can take ~30–60s). */
+async function parsePdfWithOcr(buffer) {
+  const tmpFile = path.join(
+    os.tmpdir(),
+    `jobsphere-resume-${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`
+  );
+  fs.writeFileSync(tmpFile, Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer));
+  let worker;
+  try {
+    const { pdf } = await import('pdf-to-img');
+    const doc = await pdf(tmpFile, { scale: 2 });
+    const parts = [];
+    let page = 0;
+    const maxPages = 4;
+    worker = await Tesseract.createWorker('eng');
+    for await (const image of doc) {
+      page += 1;
+      if (page > maxPages) break;
+      const {
+        data: { text }
+      } = await worker.recognize(image);
+      if (text && String(text).trim()) parts.push(String(text).trim());
+    }
+    return parts.join('\n\n').trim();
+  } finally {
+    if (worker) {
+      try {
+        await worker.terminate();
+      } catch (_e) {}
+    }
+    try {
+      fs.unlinkSync(tmpFile);
+    } catch (_e) {}
+  }
+}
+
 db.exec(`
 CREATE TABLE IF NOT EXISTS user_profile (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -133,13 +171,21 @@ app.post('/api/parse-resume', upload.single('resume'), async (req, res) => {
           text = '';
         }
       }
+      if (!text) {
+        try {
+          text = await parsePdfWithOcr(buf);
+        } catch (_ocrErr) {
+          text = '';
+        }
+      }
     } else {
       text = req.file.buffer.toString('utf8').trim();
     }
     if (!text) {
       res.status(422).json({
         ok: false,
-        error: 'No readable text found. This PDF may be scanned/image-only. Please upload a text-based PDF or TXT resume.'
+        error:
+          'No readable text found after text extract and OCR. Try a .txt resume, export PDF as text from Word, or a clearer scan (first pages are OCR’d).'
       });
       return;
     }
