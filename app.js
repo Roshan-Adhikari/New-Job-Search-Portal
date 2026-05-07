@@ -97,7 +97,14 @@ async function parseResumeByApi(file) {
     method: 'POST',
     body: form
   });
-  if (!res.ok) throw new Error('Resume parse request failed');
+  if (!res.ok) {
+    let message = 'Resume parse request failed';
+    try {
+      const err = await res.json();
+      if (err && err.error) message = err.error;
+    } catch (e) {}
+    throw new Error(message);
+  }
   const data = await res.json();
   return String(data.text || '');
 }
@@ -325,9 +332,9 @@ function handleResumeUpload(file) {
       document.getElementById('resume-actions').classList.remove('hidden');
       showToast('Resume uploaded. Ready to search matching jobs.', 'success');
     })
-    .catch(() => {
-      status.textContent = 'Could not parse resume. Ensure server is running.';
-      showToast('Resume parsing failed. Please run via npm start.', 'error');
+    .catch((error) => {
+      status.textContent = `Could not parse resume: ${error.message}`;
+      showToast(`Resume parsing failed: ${error.message}`, 'error');
     });
 }
 
@@ -454,57 +461,26 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ═══ JOB DATA GENERATOR ═══
 function generateJobsForPortal(portal, role, loc) {
-  const count = 3 + Math.floor(Math.random() * 8); // 3-10 jobs per portal
-  const types = ['Full-time','Full-time','Full-time','Part-time','Contract','Internship'];
-  const expLevels = ['0-1 years','1-3 years','2-5 years','3-7 years','5-10 years','8+ years'];
-  const days = [0,0,1,1,2,3,4,5,7,10,14,21,30];
-  const jobs = [];
-
-  // Title variations
-  const titleVariations = [
-    role,
-    `Senior ${role}`,
-    `Junior ${role}`,
-    `Lead ${role}`,
-    `${role} - Remote`,
-    `Associate ${role}`,
-    `${role} (Contract)`,
-    `${role} Specialist`,
-    `Head of ${role.replace('Manager','').trim()}`,
-    `VP ${role.replace('Manager','').trim()}`
-  ];
-
-  for (let i = 0; i < count; i++) {
-    const title = titleVariations[Math.floor(Math.random() * titleVariations.length)];
-    const company = COMPANIES[Math.floor(Math.random() * COMPANIES.length)];
-    const type = types[Math.floor(Math.random() * types.length)];
-    const exp = expLevels[Math.floor(Math.random() * expLevels.length)];
-    const daysAgo = days[Math.floor(Math.random() * days.length)];
-    const posted = new Date(Date.now() - daysAgo * 86400000);
-    const isEasyApply = portal.id === 'linkedin' && Math.random() > 0.3;
-
-    const applyUrl = portal.urlTemplate
-      .replace('{role}', encodeURIComponent(role))
-      .replace('{loc}', encodeURIComponent(loc));
-
-    jobs.push({
-      id: `${portal.id}-${Date.now()}-${i}`,
-      title,
-      company,
-      location: loc,
-      type,
-      experience: exp,
-      posted,
-      daysAgo,
-      portal: portal.id,
-      portalName: portal.name,
-      portalIcon: portal.icon,
-      portalColor: portal.color,
-      applyUrl,
-      isEasyApply
-    });
-  }
-  return jobs;
+  const applyUrl = portal.urlTemplate
+    .replace('{role}', encodeURIComponent(role))
+    .replace('{loc}', encodeURIComponent(loc));
+  return [{
+    id: `${portal.id}-${slugify(role)}-${slugify(loc)}`,
+    title: `${role} openings on ${portal.name}`,
+    company: portal.name,
+    location: loc,
+    type: 'Portal Search',
+    experience: 'As listed on portal',
+    posted: new Date(),
+    daysAgo: 0,
+    portal: portal.id,
+    portalName: portal.name,
+    portalIcon: portal.icon,
+    portalColor: portal.color,
+    applyUrl,
+    isEasyApply: portal.id === 'linkedin',
+    isSearchLink: true
+  }];
 }
 
 // ═══ FILTER & SORT ═══
@@ -686,7 +662,7 @@ function renderJobs(jobs) {
         <span class="job-meta-item"><span class="job-meta-icon">📅</span>${daysLabel}</span>
       </div>
       <div class="job-actions">
-        <a class="job-apply-btn" href="${job.applyUrl}" target="_blank" rel="noopener">↗ Apply on ${job.portalName}</a>
+        <a class="job-apply-btn" href="${job.applyUrl}" target="_blank" rel="noopener">${job.isSearchLink ? '↗ Open search on' : '↗ Apply on'} ${job.portalName}</a>
         ${easyApplyBtn}
         <button class="job-track-btn" onclick="trackJob('${job.id}')">${tracked ? '📌 Tracked' : '➕ Track'}</button>
       </div>
