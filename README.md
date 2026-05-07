@@ -8,7 +8,7 @@ Search for jobs across major portals from one dashboard, now with an Express + S
 - **Smart Filters** – Filter by Full-time, Part-time, Contract, Internship
 - **Sorting** – Latest, Most Relevant, Experience Level
 - **Portal Count Summary** – See how many jobs found per portal
-- **Resume Upload (.txt/.pdf)** – Upload resume and extract matching job roles
+- **Resume Upload (.txt/.pdf)** – Upload resume and extract matching job roles (server-side parser)
 - **Resume-Based Search** – Search multiple matching roles from your resume in one action
 - **Live Jobs API** – Optional live remote jobs from Remotive API
 - **LinkedIn Easy Apply Helper** – Open LinkedIn Easy Apply jobs in bulk tabs
@@ -50,6 +50,7 @@ Search for jobs across major portals from one dashboard, now with an Express + S
 ## Backend APIs
 
 - `GET /api/health` – health check
+- `POST /api/parse-resume` – parse uploaded PDF/TXT resume text
 - `GET /api/profile` – fetch saved autofill profile
 - `PUT /api/profile` – save autofill profile
 - `GET /api/applications` – fetch application tracker rows

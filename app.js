@@ -90,6 +90,18 @@ async function putJson(url, data) {
   return res.json();
 }
 
+async function parseResumeByApi(file) {
+  const form = new FormData();
+  form.append('resume', file);
+  const res = await fetch('/api/parse-resume', {
+    method: 'POST',
+    body: form
+  });
+  if (!res.ok) throw new Error('Resume parse request failed');
+  const data = await res.json();
+  return String(data.text || '');
+}
+
 // ═══ THEME ═══
 function toggleTheme() {
   const html = document.documentElement;
@@ -295,37 +307,28 @@ function handleResumeUpload(file) {
   if (!file) return;
   const status = document.getElementById('resume-status');
   status.textContent = 'Reading resume...';
-  const reader = new FileReader();
-  reader.onload = async () => {
-    let text = String(reader.result || '');
-    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-      text = await extractTextFromPdf(file);
+  parseResumeByApi(file)
+    .then((text) => {
       if (!text) {
-        status.textContent = 'Could not parse PDF. Try text resume.';
-        showToast('PDF parsing failed. Use text resume for now.', 'error');
+        status.textContent = 'No readable text found in resume.';
+        showToast('Resume parsing returned empty text', 'error');
         return;
       }
-    }
-    state.resume = {
-      uploaded: true,
-      filename: file.name,
-      text,
-      roles: extractRolesFromResume(text)
-    };
-    renderResumeRoles();
-    status.textContent = `Resume loaded: ${file.name}`;
-    document.getElementById('resume-actions').classList.remove('hidden');
-    showToast('Resume uploaded. Ready to search matching jobs.', 'success');
-  };
-  reader.onerror = () => {
-    status.textContent = 'Failed to read resume. Upload a plain text file.';
-    showToast('Could not read resume file', 'error');
-  };
-  if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-    reader.readAsArrayBuffer(file);
-  } else {
-    reader.readAsText(file);
-  }
+      state.resume = {
+        uploaded: true,
+        filename: file.name,
+        text,
+        roles: extractRolesFromResume(text)
+      };
+      renderResumeRoles();
+      status.textContent = `Resume loaded: ${file.name}`;
+      document.getElementById('resume-actions').classList.remove('hidden');
+      showToast('Resume uploaded. Ready to search matching jobs.', 'success');
+    })
+    .catch(() => {
+      status.textContent = 'Could not parse resume. Ensure server is running.';
+      showToast('Resume parsing failed. Please run via npm start.', 'error');
+    });
 }
 
 function renderResumeRoles() {
@@ -879,25 +882,6 @@ Phone: ${p.phone || '-'}
 Experience: ${p.experience || '-'}
 Skills: ${p.skills || '-'}
 Cover Note: ${p.coverNote || `Interested in ${job.title} at ${job.company}.`}`;
-}
-
-async function extractTextFromPdf(file) {
-  try {
-    if (!window.pdfjsLib) return '';
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.5.136/pdf.worker.min.js';
-    const data = await file.arrayBuffer();
-    const doc = await window.pdfjsLib.getDocument({ data }).promise;
-    let text = '';
-    for (let i = 1; i <= doc.numPages; i++) {
-      const page = await doc.getPage(i);
-      const content = await page.getTextContent();
-      const pageText = content.items.map(item => item.str).join(' ');
-      text += ` ${pageText}`;
-    }
-    return text.trim();
-  } catch (e) {
-    return '';
-  }
 }
 
 function persistApplications() {

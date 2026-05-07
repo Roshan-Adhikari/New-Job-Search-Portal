@@ -1,9 +1,12 @@
 const express = require('express');
 const path = require('path');
 const Database = require('better-sqlite3');
+const multer = require('multer');
+const pdfParse = require('pdf-parse');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
 const dbPath = path.join(__dirname, 'jobsphere.db');
 const db = new Database(dbPath);
 
@@ -34,6 +37,30 @@ app.use(express.static(__dirname));
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'jobsphere-api' });
+});
+
+app.post('/api/parse-resume', upload.single('resume'), async (req, res) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ ok: false, error: 'Resume file is required' });
+      return;
+    }
+    const name = String(req.file.originalname || '').toLowerCase();
+    let text = '';
+    if (req.file.mimetype === 'application/pdf' || name.endsWith('.pdf')) {
+      const parsed = await pdfParse(req.file.buffer);
+      text = String(parsed.text || '').trim();
+    } else {
+      text = req.file.buffer.toString('utf8').trim();
+    }
+    if (!text) {
+      res.status(422).json({ ok: false, error: 'No readable text found in resume file' });
+      return;
+    }
+    res.json({ ok: true, text });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: 'Failed to parse resume file' });
+  }
 });
 
 app.get('/api/profile', (_req, res) => {
