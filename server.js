@@ -1,8 +1,11 @@
 const express = require('express');
+const fs = require('fs');
 const path = require('path');
+const { pathToFileURL } = require('url');
 const Database = require('better-sqlite3');
 const multer = require('multer');
 const pdfParse = require('pdf-parse');
+const PDFParser = require('pdf2json');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -10,10 +13,30 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 *
 const dbPath = path.join(__dirname, 'jobsphere.db');
 const db = new Database(dbPath);
 
+function pdfDistRoot() {
+  return path.dirname(require.resolve('pdfjs-dist/package.json'));
+}
+
 async function parsePdfWithPdfJs(buffer) {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(buffer) });
-  const pdf = await loadingTask.promise;
+  const root = pdfDistRoot();
+  const uint8 = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  const baseOpts = { data: uint8, useSystemFonts: true };
+  const cmapsDir = path.join(root, 'cmaps');
+  if (fs.existsSync(cmapsDir)) {
+    baseOpts.cMapUrl = pathToFileURL(path.join(cmapsDir) + path.sep).href;
+    baseOpts.cMapPacked = true;
+  }
+  const stdDir = path.join(root, 'standard_fonts');
+  if (fs.existsSync(stdDir)) {
+    baseOpts.standardFontDataUrl = pathToFileURL(path.join(stdDir) + path.sep).href;
+  }
+  let pdf;
+  try {
+    pdf = await pdfjs.getDocument(baseOpts).promise;
+  } catch (_e) {
+    pdf = await pdfjs.getDocument({ data: uint8, useSystemFonts: true }).promise;
+  }
   let text = '';
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
@@ -21,6 +44,34 @@ async function parsePdfWithPdfJs(buffer) {
     text += ' ' + content.items.map((item) => item.str || '').join(' ');
   }
   return text.trim();
+}
+
+function parsePdfWithPdf2Json(buffer) {
+  return new Promise((resolve, reject) => {
+    const pdfParser = new PDFParser(null, 1);
+    pdfParser.on('pdfParser_dataError', (errData) => reject(errData.parserError || errData));
+    pdfParser.on('pdfParser_dataReady', (pdfData) => {
+      try {
+        let text = '';
+        (pdfData.Pages || []).forEach((page) => {
+          (page.Texts || []).forEach((textItem) => {
+            (textItem.R || []).forEach((r) => {
+              const t = r.T || '';
+              try {
+                text += `${decodeURIComponent(t)} `;
+              } catch {
+                text += `${t} `;
+              }
+            });
+          });
+        });
+        resolve(text.replace(/\s+/g, ' ').trim());
+      } catch (e) {
+        reject(e);
+      }
+    });
+    pdfParser.parseBuffer(Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer));
+  });
 }
 
 db.exec(`
@@ -61,15 +112,23 @@ app.post('/api/parse-resume', upload.single('resume'), async (req, res) => {
     const name = String(req.file.originalname || '').toLowerCase();
     let text = '';
     if (req.file.mimetype === 'application/pdf' || name.endsWith('.pdf')) {
+      const buf = Buffer.isBuffer(req.file.buffer) ? req.file.buffer : Buffer.from(req.file.buffer);
       try {
-        const parsed = await pdfParse(req.file.buffer);
+        const parsed = await pdfParse(buf);
         text = String(parsed.text || '').trim();
       } catch (_err) {
         text = '';
       }
       if (!text) {
         try {
-          text = await parsePdfWithPdfJs(req.file.buffer);
+          text = await parsePdfWithPdfJs(buf);
+        } catch (_err) {
+          text = '';
+        }
+      }
+      if (!text) {
+        try {
+          text = await parsePdfWithPdf2Json(buf);
         } catch (_err) {
           text = '';
         }

@@ -19,19 +19,106 @@ const PORTALS = [
 
 // ── Location data ──
 const LOCATIONS = {
-  'Popular Cities': ['Bangalore','Mumbai','Delhi','Hyderabad','Pune','Chennai','Kolkata','Ahmedabad','Noida','Gurgaon','Jaipur'],
-  'Remote': ['Remote','Remote (India)','Remote / Work from Home','Work From Home','Online / Remote','Remote Worldwide'],
-  'International': ['USA','UK','UAE','Canada','Singapore','Australia','Germany']
+  'Popular Cities': [
+    'Bangalore', 'Bengaluru', 'Mumbai', 'Delhi', 'New Delhi', 'Hyderabad', 'Pune', 'Chennai',
+    'Kolkata', 'Ahmedabad', 'Noida', 'Gurgaon', 'Gurugram', 'Jaipur', 'Chandigarh', 'Kochi',
+    'Indore', 'Bhubaneswar', 'Visakhapatnam', 'Coimbatore', 'Lucknow', 'Nagpur', 'Surat'
+  ],
+  'Remote': [
+    'Remote', 'Remote (India)', 'Remote / Work from Home', 'Work From Home', 'Online / Remote',
+    'Remote Worldwide', 'Hybrid', 'Hybrid — Bangalore', 'Hybrid — Mumbai'
+  ],
+  'International': [
+    'USA', 'United States', 'UK', 'London', 'UAE', 'Dubai', 'Canada', 'Singapore', 'Australia',
+    'Germany', 'Netherlands', 'Ireland'
+  ]
 };
 
-// ── Role suggestions ──
-const ROLE_SUGGESTIONS = [
-  'Operations Manager','Product Manager','HR Business Partner','Software Engineer',
-  'Data Analyst','Marketing Manager','UX Designer','DevOps Engineer','Full Stack Developer',
-  'Business Analyst','Project Manager','Sales Executive','Content Writer','Digital Marketing',
-  'Frontend Developer','Backend Developer','Cloud Architect','Machine Learning Engineer',
-  'Financial Analyst','Supply Chain Manager','Quality Assurance','Cybersecurity Analyst'
+// ── Role suggestions (expanded + senior/lead variants) ──
+const ROLE_BASE = [
+  'Program Manager',
+  'Technical Program Manager',
+  'Project Manager',
+  'Product Manager',
+  'Project/Product Owner',
+  'Engineering Manager',
+  'Software Development Manager',
+  'Delivery Manager',
+  'Scrum Master',
+  'Agile Coach',
+  'Operations Manager',
+  'Business Operations Manager',
+  'HR Business Partner',
+  'Talent Acquisition Specialist',
+  'Recruiter',
+  'Software Engineer',
+  'Senior Software Engineer',
+  'Full Stack Developer',
+  'Frontend Developer',
+  'Backend Developer',
+  'Mobile Developer',
+  'Android Developer',
+  'iOS Developer',
+  'DevOps Engineer',
+  'Site Reliability Engineer',
+  'Cloud Architect',
+  'Solutions Architect',
+  'Enterprise Architect',
+  'Data Engineer',
+  'Data Analyst',
+  'Data Scientist',
+  'Machine Learning Engineer',
+  'AI Engineer',
+  'Business Analyst',
+  'Systems Analyst',
+  'Quality Assurance Engineer',
+  'QA Automation Engineer',
+  'Test Engineer',
+  'Cybersecurity Analyst',
+  'Security Engineer',
+  'Network Engineer',
+  'Database Administrator',
+  'UX Designer',
+  'UI Designer',
+  'Product Designer',
+  'Graphic Designer',
+  'Marketing Manager',
+  'Digital Marketing Specialist',
+  'Growth Manager',
+  'Content Writer',
+  'Technical Writer',
+  'Sales Executive',
+  'Account Executive',
+  'Business Development Manager',
+  'Customer Success Manager',
+  'Financial Analyst',
+  'Supply Chain Manager',
+  'Procurement Manager'
 ];
+
+const ROLE_LEVEL_PREFIXES = ['Senior ', 'Lead ', 'Principal ', 'Staff ', 'Associate ', 'Junior '];
+
+function buildRoleSuggestions() {
+  const set = new Set();
+  for (const r of ROLE_BASE) {
+    set.add(r);
+    const lower = r.toLowerCase();
+    for (const p of ROLE_LEVEL_PREFIXES) {
+      const word = p.trim().toLowerCase();
+      if (lower.startsWith(word + ' ') || lower === word) continue;
+      set.add(p + r);
+    }
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+}
+
+const ROLE_SUGGESTIONS = buildRoleSuggestions();
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+  );
+}
 
 // ── Companies for demo data ──
 const COMPANIES = [
@@ -168,13 +255,36 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('#field-role')) roleSugg.classList.add('hidden');
 });
 
+document.getElementById('field-role').addEventListener('click', (e) => {
+  const item = e.target.closest('.role-sugg-item');
+  if (!item) return;
+  const raw = item.getAttribute('data-role');
+  if (!raw) return;
+  selectRole(decodeURIComponent(raw));
+});
+
 function renderRoleSuggestions(query) {
   const q = query.toLowerCase().trim();
-  const matches = !q
-    ? ROLE_SUGGESTIONS
-    : ROLE_SUGGESTIONS.filter(r => r.toLowerCase().includes(q));
+  let matches = !q
+    ? [...ROLE_SUGGESTIONS]
+    : ROLE_SUGGESTIONS.filter((r) => r.toLowerCase().includes(q));
   if (matches.length === 0) { roleSugg.classList.add('hidden'); return; }
-  roleSugg.innerHTML = matches.map(r => `<div class="dd-item" onclick="selectRole('${r}')">${r}</div>`).join('');
+  if (q) {
+    matches.sort((a, b) => {
+      const al = a.toLowerCase();
+      const bl = b.toLowerCase();
+      const aStarts = al.startsWith(q) ? 0 : 1;
+      const bStarts = bl.startsWith(q) ? 0 : 1;
+      if (aStarts !== bStarts) return aStarts - bStarts;
+      return al.localeCompare(bl);
+    });
+  }
+  roleSugg.innerHTML = matches
+    .map(
+      (r) =>
+        `<div class="dd-item role-sugg-item" data-role="${encodeURIComponent(r)}">${escapeHtml(r)}</div>`
+    )
+    .join('');
   roleSugg.classList.remove('hidden');
 }
 
@@ -348,7 +458,12 @@ function renderResumeRoles() {
     return;
   }
   wrap.innerHTML = state.resume.roles
-    .map(role => `<button class="resume-role-chip" onclick="useResumeRole('${role.replace(/'/g, "\\'")}')">${role}</button>`)
+    .map(
+      (role) =>
+        `<button type="button" class="resume-role-chip" data-resume-role="${encodeURIComponent(role)}">${escapeHtml(
+          role
+        )}</button>`
+    )
     .join('');
   wrap.classList.remove('hidden');
 }
@@ -928,6 +1043,14 @@ document.addEventListener('keydown', e => {
 
 document.getElementById('resume-file').addEventListener('change', (e) => {
   handleResumeUpload(e.target.files[0]);
+});
+
+document.getElementById('resume-role-chips').addEventListener('click', (e) => {
+  const btn = e.target.closest('.resume-role-chip');
+  if (!btn) return;
+  const enc = btn.getAttribute('data-resume-role');
+  if (!enc) return;
+  useResumeRole(decodeURIComponent(enc));
 });
 
 document.getElementById('ea-use-profile').addEventListener('change', () => {
