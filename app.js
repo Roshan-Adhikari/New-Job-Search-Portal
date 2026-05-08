@@ -180,20 +180,93 @@ async function putJson(url, data) {
 async function parseResumeByApi(file) {
   const form = new FormData();
   form.append('resume', file);
-  const res = await fetch('/api/parse-resume', {
-    method: 'POST',
-    body: form
-  });
+  let res;
+  try {
+    res = await fetch('/api/parse-resume', {
+      method: 'POST',
+      body: form
+    });
+  } catch (e) {
+    const err = new Error('Failed to fetch');
+    err.code = 'NETWORK';
+    throw err;
+  }
   if (!res.ok) {
     let message = 'Resume parse request failed';
     try {
       const err = await res.json();
       if (err && err.error) message = err.error;
     } catch (e) {}
-    throw new Error(message);
+    const er = new Error(message);
+    er.code = 'API';
+    throw er;
   }
   const data = await res.json();
   return String(data.text || '');
+}
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Could not read file'));
+    reader.readAsText(file);
+  });
+}
+
+async function extractTextFromPdfInBrowser(file) {
+  if (!window.pdfjsLib) {
+    throw new Error('PDF.js not loaded. Check internet (CDN) or use a .txt resume.');
+  }
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.5.136/pdf.worker.min.js';
+  const data = await file.arrayBuffer();
+  const doc = await window.pdfjsLib.getDocument({ data }).promise;
+  let text = '';
+  const maxPages = Math.min(doc.numPages, 15);
+  for (let i = 1; i <= maxPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    text += ' ' + content.items.map((item) => item.str || '').join(' ');
+  }
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Server API when available (OCR for scans). Falls back to browser text/PDF.js when
+ * the app is opened as a file, server is off, or network fails — fixes "Failed to fetch".
+ */
+async function parseResumeWithFallback(file, onStatus) {
+  const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+  const looksPlain =
+    /^text\//i.test(file.type) || /\.(txt|md|csv)$/i.test(file.name || '');
+  const onHttp = typeof location !== 'undefined' && location.protocol.startsWith('http');
+
+  if (onHttp) {
+    try {
+      return await parseResumeByApi(file);
+    } catch (e) {
+      if (e.code !== 'NETWORK' && e.message !== 'Failed to fetch') throw e;
+      if (typeof onStatus === 'function') onStatus('Server unreachable — using browser parser…');
+    }
+  } else if (typeof onStatus === 'function') {
+    onStatus('Opened as file — using browser parser (for OCR run: npm start)…');
+  }
+
+  if (!isPdf) {
+    const raw = await readFileAsText(file);
+    const t = raw.trim();
+    if (!t) throw new Error('File is empty or not readable as text.');
+    return t;
+  }
+
+  if (typeof onStatus === 'function') onStatus('Extracting text from PDF in browser…');
+  const local = await extractTextFromPdfInBrowser(file);
+  if (local && local.length > 40) return local;
+
+  throw new Error(
+    'No usable text from this PDF in the browser (often scanned/image-only). Run the app with npm start and open http://localhost:3000 for server + OCR, or export your resume as .txt / Word “Save as text”.'
+  );
 }
 
 // ═══ THEME ═══
@@ -427,9 +500,11 @@ function handleResumeUpload(file) {
   const status = document.getElementById('resume-status');
   const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
   status.textContent = isPdf
-    ? 'Reading resume… (scanned PDFs use OCR on first pages; may take up to a minute)'
+    ? 'Reading resume… (server: OCR for scans; otherwise browser text extract)'
     : 'Reading resume…';
-  parseResumeByApi(file)
+  parseResumeWithFallback(file, (msg) => {
+    status.textContent = msg;
+  })
     .then((text) => {
       if (!text) {
         status.textContent = 'No readable text found in resume.';

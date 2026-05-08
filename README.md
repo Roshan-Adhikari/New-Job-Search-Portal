@@ -8,7 +8,7 @@ Search for jobs across major portals from one dashboard, now with an Express + S
 - **Smart Filters** – Filter by Full-time, Part-time, Contract, Internship
 - **Sorting** – Latest, Most Relevant, Experience Level
 - **Portal Count Summary** – See how many jobs found per portal
-- **Resume Upload (.txt/.pdf)** – Server-side text extract; if the PDF has no text layer (scanned), **OCR** runs on the first few pages (can take up to ~1 minute). Requires native **`canvas`** (installed with `pdf-to-img`).
+- **Resume Upload (.txt/.pdf)** – Tries the **server** first (`/api/parse-resume`, includes OCR for scans when `npm start` is used). If the server is unreachable (**“Failed to fetch”**) or you opened the HTML file directly, it **falls back to the browser** (PDF.js text layer). Scanned PDFs still need the server + OCR or a `.txt` export.
 - **Resume-Based Search** – Search multiple matching roles from your resume in one action
 - **Live Jobs API** – Optional live remote jobs from Remotive API
 - **LinkedIn Easy Apply Helper** – Open LinkedIn Easy Apply jobs in bulk tabs
