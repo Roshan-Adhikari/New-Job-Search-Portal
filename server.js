@@ -15,6 +15,69 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 *
 const dbPath = path.join(__dirname, 'jobsphere.db');
 const db = new Database(dbPath);
 
+/** First existing path wins: env → default-resume.path (line 1) → default-resume.pdf in project */
+function resolveDefaultResumePath() {
+  const candidates = [];
+  const env = process.env.DEFAULT_RESUME_PATH || process.env.JOBSPHERE_DEFAULT_RESUME;
+  if (env && String(env).trim()) candidates.push(String(env).trim());
+  const pathFile = path.join(__dirname, 'default-resume.path');
+  if (fs.existsSync(pathFile)) {
+    try {
+      const first = fs
+        .readFileSync(pathFile, 'utf8')
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .find((l) => l && !l.startsWith('#'));
+      if (first) candidates.push(first);
+    } catch (_e) {}
+  }
+  candidates.push(path.join(__dirname, 'default-resume.pdf'));
+  for (const p of candidates) {
+    try {
+      if (p && fs.existsSync(p)) return path.resolve(p);
+    } catch (_e) {}
+  }
+  return null;
+}
+
+async function extractResumeTextFromBuffer(buf, filenameLower) {
+  const name = String(filenameLower || '').toLowerCase();
+  let text = '';
+  if (name.endsWith('.pdf') || !name) {
+    const buffer = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+    try {
+      const parsed = await pdfParse(buffer);
+      text = String(parsed.text || '').trim();
+    } catch (_err) {
+      text = '';
+    }
+    if (!text) {
+      try {
+        text = await parsePdfWithPdfJs(buffer);
+      } catch (_err) {
+        text = '';
+      }
+    }
+    if (!text) {
+      try {
+        text = await parsePdfWithPdf2Json(buffer);
+      } catch (_err) {
+        text = '';
+      }
+    }
+    if (!text) {
+      try {
+        text = await parsePdfWithOcr(buffer);
+      } catch (_ocrErr) {
+        text = '';
+      }
+    }
+  } else {
+    text = Buffer.isBuffer(buf) ? buf.toString('utf8').trim() : String(buf).trim();
+  }
+  return text;
+}
+
 function pdfDistRoot() {
   return path.dirname(require.resolve('pdfjs-dist/package.json'));
 }
@@ -141,6 +204,34 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'jobsphere-api' });
 });
 
+app.get('/api/default-resume', async (_req, res) => {
+  try {
+    const filePath = resolveDefaultResumePath();
+    if (!filePath) {
+      res.status(404).json({
+        ok: false,
+        error:
+          'No default resume. Set DEFAULT_RESUME_PATH, or add default-resume.path (line 1 = full path), or place default-resume.pdf in the project folder.'
+      });
+      return;
+    }
+    const buf = fs.readFileSync(filePath);
+    const base = path.basename(filePath).toLowerCase();
+    const text = await extractResumeTextFromBuffer(buf, base);
+    if (!text) {
+      res.status(422).json({
+        ok: false,
+        error:
+          'Default resume file exists but no text could be extracted. Try .txt or run OCR-friendly PDF.'
+      });
+      return;
+    }
+    res.json({ ok: true, text, filename: path.basename(filePath) });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 app.post('/api/parse-resume', upload.single('resume'), async (req, res) => {
   try {
     if (!req.file) {
@@ -148,39 +239,11 @@ app.post('/api/parse-resume', upload.single('resume'), async (req, res) => {
       return;
     }
     const name = String(req.file.originalname || '').toLowerCase();
-    let text = '';
-    if (req.file.mimetype === 'application/pdf' || name.endsWith('.pdf')) {
-      const buf = Buffer.isBuffer(req.file.buffer) ? req.file.buffer : Buffer.from(req.file.buffer);
-      try {
-        const parsed = await pdfParse(buf);
-        text = String(parsed.text || '').trim();
-      } catch (_err) {
-        text = '';
-      }
-      if (!text) {
-        try {
-          text = await parsePdfWithPdfJs(buf);
-        } catch (_err) {
-          text = '';
-        }
-      }
-      if (!text) {
-        try {
-          text = await parsePdfWithPdf2Json(buf);
-        } catch (_err) {
-          text = '';
-        }
-      }
-      if (!text) {
-        try {
-          text = await parsePdfWithOcr(buf);
-        } catch (_ocrErr) {
-          text = '';
-        }
-      }
-    } else {
-      text = req.file.buffer.toString('utf8').trim();
-    }
+    const buf = Buffer.isBuffer(req.file.buffer) ? req.file.buffer : Buffer.from(req.file.buffer);
+    const isPdf = req.file.mimetype === 'application/pdf' || name.endsWith('.pdf');
+    const text = isPdf
+      ? await extractResumeTextFromBuffer(buf, name)
+      : buf.toString('utf8').trim();
     if (!text) {
       res.status(422).json({
         ok: false,

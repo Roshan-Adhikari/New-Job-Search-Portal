@@ -1,3 +1,5 @@
 node_modules/
 jobsphere.db
 *.log
+default-resume.path
+default-resume.pdf

@@ -1128,6 +1128,29 @@ async function restoreSavedData() {
     if (!runtime.backendReady && Array.isArray(apps)) state.applications = apps;
   } catch (e) {}
   renderApplicationTracker();
+  await loadDefaultResumeFromServer();
+}
+
+/** Loads resume from server disk (DEFAULT_RESUME_PATH, default-resume.path, or default-resume.pdf). */
+async function loadDefaultResumeFromServer() {
+  if (!runtime.backendReady || state.resume.uploaded) return;
+  try {
+    const res = await fetch('/api/default-resume');
+    if (res.status === 404) return;
+    const data = await res.json().catch(() => null);
+    if (!data || !data.ok || !data.text) return;
+    state.resume = {
+      uploaded: true,
+      filename: data.filename || 'resume',
+      text: data.text,
+      roles: extractRolesFromResume(data.text)
+    };
+    renderResumeRoles();
+    const status = document.getElementById('resume-status');
+    if (status) status.textContent = `Resume loaded: ${data.filename} (auto from your PC)`;
+    document.getElementById('resume-actions')?.classList.remove('hidden');
+    showToast('Default resume loaded automatically', 'success');
+  } catch (_e) {}
 }
 
 // ═══ TOAST ═══

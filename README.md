@@ -9,6 +9,7 @@ Search for jobs across major portals from one dashboard, now with an Express + S
 - **Sorting** – Latest, Most Relevant, Experience Level
 - **Portal Count Summary** – See how many jobs found per portal
 - **Resume Upload (.txt/.pdf)** – Tries the **server** first (`/api/parse-resume`, includes OCR for scans when `npm start` is used). If the server is unreachable (**“Failed to fetch”**) or you opened the HTML file directly, it **falls back to the browser** (PDF.js text layer). Scanned PDFs still need the server + OCR or a `.txt` export.
+- **Default resume (auto-load)** – With `npm start`, the app calls `GET /api/default-resume` on load. The server looks for, in order: `DEFAULT_RESUME_PATH` / `JOBSPHERE_DEFAULT_RESUME` env var → first line of **`default-resume.path`** in the project folder → **`default-resume.pdf`** in the project folder. Copy `default-resume.path.example` to `default-resume.path` and put your full Windows path on line 1 (browsers cannot read `C:\...` themselves; the Node server can).
 - **Resume-Based Search** – Search multiple matching roles from your resume in one action
 - **Live Jobs API** – Optional live remote jobs from Remotive API
 - **LinkedIn Easy Apply Helper** – Open LinkedIn Easy Apply jobs in bulk tabs
@@ -51,6 +52,7 @@ Search for jobs across major portals from one dashboard, now with an Express + S
 
 - `GET /api/health` – health check
 - `POST /api/parse-resume` – parse uploaded PDF/TXT resume text
+- `GET /api/default-resume` – read & parse the configured default file on disk (for auto-load on page open)
 - `GET /api/profile` – fetch saved autofill profile
 - `PUT /api/profile` – save autofill profile
 - `GET /api/applications` – fetch application tracker rows
