@@ -58,9 +58,19 @@ Search for jobs across major portals from one dashboard, now with an Express + S
 - `GET /api/applications` – fetch application tracker rows
 - `PUT /api/applications` – upsert application tracker rows
 
+## About job listing accuracy
+
+- **LinkedIn, Naukri, Indeed, etc.** — Each card is a **deep link to that site’s own search** (we do not scrape their job database). The **job rows you see after clicking are exactly what each portal returns** for your keywords and location. LinkedIn uses a dedicated URL builder: clearer **location strings** (e.g. “Bangalore, Karnataka, India”), **`f_AL=true`** (Easy Apply), and when **“Online / Remote jobs only”** is checked, **`f_WT=2`** (remote filter).
+- **Remotive** — Rows from “Include live API jobs” are **real API listings** from Remotive (remote-focused), not LinkedIn.
+
+## Why PDF upload sometimes fails
+
+- **“Failed to fetch”** — Usually means the page is not talking to the Node server: use **`npm start`** and **`http://localhost:3000`**, not opening `index.html` as a file. The app then falls back to **browser PDF text** if the server is down.
+- **Scanned / image-only PDFs** — Need **server-side OCR** (`canvas` + `pdf-to-img` + `tesseract`); if `npm install` failed on `canvas`, OCR won’t run. Easiest fix: export resume as **`.txt`** or use **“Save as PDF” with text** from Word.
+
 ## Architecture
 
-The frontend still uses modular `generateJobsForPortal()` for static portal simulation and optional live Remotive API jobs. Profile and tracker states are synced to SQLite through Express APIs, so your history persists on the server.
+The dashboard builds **portal search URLs** (plus optional **Remotive** API jobs). Profile and application tracker sync to **SQLite** via Express.
 
 ## Future Roadmap
 

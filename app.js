@@ -4,7 +4,7 @@
 
 // ── Portal definitions ──
 const PORTALS = [
-  { id:'linkedin', name:'LinkedIn', icon:'in', color:'#0A66C2', baseUrl:'https://www.linkedin.com/jobs/', urlTemplate:'https://www.linkedin.com/jobs/search/?keywords={role}&location={loc}' },
+  { id:'linkedin', name:'LinkedIn', icon:'in', color:'#0A66C2', baseUrl:'https://www.linkedin.com/jobs/', urlTemplate:'__LINKEDIN_DYNAMIC__' },
   { id:'naukri', name:'Naukri', icon:'N', color:'#4A90D9', baseUrl:'https://www.naukri.com/', urlTemplate:'https://www.naukri.com/{role}-jobs-in-{loc}' },
   { id:'indeed', name:'Indeed', icon:'🔍', color:'#2164f3', baseUrl:'https://www.indeed.com/', urlTemplate:'https://www.indeed.com/jobs?q={role}&l={loc}' },
   { id:'glassdoor', name:'Glassdoor', icon:'🚪', color:'#0caa41', baseUrl:'https://www.glassdoor.com/', urlTemplate:'https://www.glassdoor.com/Job/{loc}-{role}-jobs.htm' },
@@ -189,6 +189,7 @@ async function parseResumeByApi(file) {
   } catch (e) {
     const err = new Error('Failed to fetch');
     err.code = 'NETWORK';
+    err.cause = e;
     throw err;
   }
   if (!res.ok) {
@@ -246,7 +247,10 @@ async function parseResumeWithFallback(file, onStatus) {
     try {
       return await parseResumeByApi(file);
     } catch (e) {
-      if (e.code !== 'NETWORK' && e.message !== 'Failed to fetch') throw e;
+      const msg = String(e && (e.message || e)).toLowerCase();
+      const isNetwork =
+        e && (e.code === 'NETWORK' || msg.includes('failed to fetch') || msg.includes('networkerror'));
+      if (!isNetwork) throw e;
       if (typeof onStatus === 'function') onStatus('Server unreachable — using browser parser…');
     }
   } else if (typeof onStatus === 'function') {
@@ -655,17 +659,73 @@ async function animateSearch(role, loc) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+/** LinkedIn expects full place names; free text “Bangalore” often geocodes poorly. */
+const LINKEDIN_LOCATION_HINTS = {
+  bangalore: 'Bangalore, Karnataka, India',
+  bengaluru: 'Bengaluru, Karnataka, India',
+  mumbai: 'Mumbai, Maharashtra, India',
+  delhi: 'Delhi, India',
+  'new delhi': 'New Delhi, Delhi, India',
+  hyderabad: 'Hyderabad, Telangana, India',
+  pune: 'Pune, Maharashtra, India',
+  chennai: 'Chennai, Tamil Nadu, India',
+  kolkata: 'Kolkata, West Bengal, India',
+  ahmedabad: 'Ahmedabad, Gujarat, India',
+  noida: 'Noida, Uttar Pradesh, India',
+  gurgaon: 'Gurgaon, Haryana, India',
+  gurugram: 'Gurugram, Haryana, India',
+  jaipur: 'Jaipur, Rajasthan, India',
+  remote: 'India',
+  'remote (india)': 'India',
+  'remote / work from home': 'India',
+  'work from home': 'India',
+  'online / remote': 'India',
+  'remote worldwide': 'Worldwide'
+};
+
+function linkedInLocationForSearch(loc) {
+  const raw = String(loc || '').trim();
+  if (!raw) return 'India';
+  const key = raw.toLowerCase();
+  if (LINKEDIN_LOCATION_HINTS[key]) return LINKEDIN_LOCATION_HINTS[key];
+  return raw;
+}
+
+/**
+ * Opens LinkedIn’s own job search (live results). Not an official API — same as searching on linkedin.com.
+ * f_AL=true = Easy Apply filter; f_WT=2 = Remote when “Online / Remote only” is on.
+ */
+function buildLinkedInJobSearchUrl(role, loc, remoteOnly) {
+  const p = new URLSearchParams();
+  p.set('keywords', String(role || '').trim());
+  if (remoteOnly) {
+    p.set('f_WT', '2');
+    p.set('location', 'India');
+  } else {
+    p.set('location', linkedInLocationForSearch(loc));
+  }
+  p.set('f_AL', 'true');
+  return `https://www.linkedin.com/jobs/search/?${p.toString()}`;
+}
+
 // ═══ JOB DATA GENERATOR ═══
 function generateJobsForPortal(portal, role, loc) {
-  const applyUrl = portal.urlTemplate
-    .replace('{role}', encodeURIComponent(role))
-    .replace('{loc}', encodeURIComponent(loc));
+  const remoteOnly = document.getElementById('remote-only')?.checked;
+  const applyUrl =
+    portal.id === 'linkedin'
+      ? buildLinkedInJobSearchUrl(role, loc, remoteOnly)
+      : portal.urlTemplate
+          .replace('{role}', encodeURIComponent(role))
+          .replace('{loc}', encodeURIComponent(loc));
+  const linkedInDisplayLoc = remoteOnly
+    ? 'Remote (LinkedIn filter f_WT=2)'
+    : linkedInLocationForSearch(loc);
   return [{
     id: `${portal.id}-${slugify(role)}-${slugify(loc)}`,
     searchRole: role,
-    searchLocation: loc,
+    searchLocation: portal.id === 'linkedin' ? linkedInDisplayLoc : loc,
     title: role,
-    company: `Job search · ${portal.name}`,
+    company: portal.id === 'linkedin' ? 'Opens live LinkedIn job search' : `Job search · ${portal.name}`,
     location: loc,
     type: 'Portal Search',
     experience: 'As listed on portal',
@@ -866,7 +926,7 @@ function renderJobs(jobs) {
     const exactLoc = escapeHtml(job.searchLocation || job.location);
     const linkedInQuery =
       job.portal === 'linkedin' && job.isSearchLink
-        ? `<div class="job-linkedin-query">LinkedIn search uses this exact title: <strong>${exactRole}</strong> · Location: <strong>${exactLoc}</strong></div>`
+        ? `<div class="job-linkedin-query">Opens <strong>live LinkedIn</strong> job search (same listings as on linkedin.com) for <strong>${exactRole}</strong> · <strong>${exactLoc}</strong> · Easy Apply filter on. Use the button below to open LinkedIn in a new tab.</div>`
         : '';
     const searchHint =
       job.isSearchLink && job.portal !== 'linkedin'
